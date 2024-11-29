@@ -117,6 +117,7 @@ end
 def get_log_files(path)
   files = []
  filesglob(path).each do |file|
+    next if File.basename(file) == "FILE"
     files << File.basename(file)
 
  end
