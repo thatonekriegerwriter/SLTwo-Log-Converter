@@ -1,6 +1,8 @@
 
+require 'fox16'
 require 'pathname'
 
+include Fox
 def clean_text_old(file, output, settings)
   # Open the file for reading
   unless File.exist?(file)
@@ -124,38 +126,25 @@ def clear_console
   system('cls') || system('clear')
 end
 
+def nil_or_empty?(string)
+  return string.nil? || !string.is_a?(String) || string.size == 0
+end
 
 
 
 
-  clear_console
 if !ENV["OCRAN_EXECUTABLE"].nil?
 directory = ENV["OCRAN_EXECUTABLE"]
 directory = directory.gsub('\\', '/')
 directory = directory.sub('/SL2 Log Converter.exe', '')
-script_directory= directory
+$script_directory= directory
 
 else
-script_directory = File.dirname(__FILE__)
+$script_directory = File.dirname(__FILE__)
 end
 
 
-#settings = "timestamps","lineamt","reformat","OOC","LOOC","Omit","Omit on Repost","Filter"
-settings = [false,"multi",true,false,false,false,false,nil]
 
-
-
-
-input_directory = script_directory + "/put_logs_here/"
-output_directory = script_directory + "/logs_output/"
-file =  ARGV[0] || "latest_chatlog"
-file2 =  "cleaned_#{file}.txt"
-input_file = File.join(input_directory, file)
-output_file = File.join(output_directory, file2)
-input_file = File.join(input_directory, "latest_chatlog.txt") if !File.exists?(input_file)
-output_file = File.join(output_directory, "cleaned_latest_chatlog.txt") if !File.exists?(output_file)
-input_file = "None" if !File.exists?(input_file)
-files = get_log_files(input_directory)
 
 def clean_text(file, output, settings)
   unless File.exist?(file)
@@ -211,10 +200,13 @@ end
 def skip_line?(line, settings)
   return true if line =~ /\b\(omit\)\b/ && settings[5] == false
   return true if line =~ /\b\(oir\)\b/ && settings[6] == false
+  return true if line =~ /\b\(repost\)\b/ && settings[6] == false
   return true if line =~ /\bOOC\b/ && settings[3] == false
   return true if line =~ /\bLOOC\b/ && settings[4] == false
-   if !settings[7].nil?
-  return true if line =~ /^\d{2}:\d{2} - #{Regexp.escape(settings[7])} said in (Say|Emote)/ 
+   if !nil_or_empty?(settings[7])
+  if !line.include?(settings[7])
+  return true 
+  end
    end
   return false
 end
@@ -237,7 +229,6 @@ def skip_line2?(line, character, settings)
   return false
   return false if character.nil?
   nuline = line.gsub!(character, "").strip
-  puts nuline
   return true if nuline.empty?
   return true if nuline == "." || nuline == "**"
   return true if nuline.length==1 && nuline.downcase=="a"
@@ -267,6 +258,453 @@ def valid_file_path?(path)
 end
 
 
+class SL2Toolkit < FXMainWindow
+  def initialize(app, bot=nil)
+    super(app, "Omen's SL2 Toolkit", nil, nil, DECOR_TITLE | DECOR_CLOSE, 0, 0, 840, 800)
+    @menu_bar = FXMenuBar.new(self, LAYOUT_SIDE_TOP | LAYOUT_FILL_X)
+    help_menu = FXMenuPane.new(self)
+    FXMenuTitle.new(@menu_bar, "Help", :popupMenu => help_menu)
+#settings = "timestamps","single line","reformat","OOC","LOOC","Omit","Omit on Repost","Filter"
+@settings = [false,false,true,false,false,false,false,nil]
+
+
+
+
+@input_directory_original = $script_directory + "/put_logs_here/"
+@input_directory = $script_directory + "/put_logs_here/"
+@output_directory = $script_directory + "/logs_output/"
+@file =  ARGV[0] || "latest_chatlog"
+@file2 =  "cleaned_#{@file}.txt"
+@input_file = File.join(@input_directory, @file)
+@output_file = File.join(@output_directory, @file2)
+@input_file = File.join(@input_directory, "latest_chatlog.txt") if !File.exists?(@input_file)
+@output_file = File.join(@output_directory, "cleaned_latest_chatlog.txt") if !File.exists?(@output_file)
+@input_file = "None" if !File.exists?(@input_file)
+@files = get_log_files(@input_directory)
+@customname = ""
+
+    status_bar = FXStatusBar.new(self, LAYOUT_SIDE_BOTTOM | LAYOUT_FILL_X)
+    tab_book = FXTabBook.new(self, nil, 0, LAYOUT_FILL_X | LAYOUT_FILL_Y)
+    tab_book.connect(SEL_COMMAND) do |sender, sel, data|
+      case tab_book.current
+      when 0
+        # Execute code specific to Tab 1
+      when 1
+        # Execute code specific to Tab 2
+      when 2
+        # Execute code specific to Tab 2
+      when 3
+        # Execute code specific to Tab 2
+      when 4
+        # Execute code specific to Tab 2
+      end
+    end
+	drawObjects(tab_book)
+	drawTopMenu(tab_book,help_menu)
+    show(PLACEMENT_SCREEN)
+    #self.connect(SEL_CLOSE, method(:on_close)) 
+ end
+
+
+
+
+def drawObjects(tab_book)
+    drawBasicInfo(tab_book)
+
+
+end
+ def drawTopMenu(tab_book,help_menu)
+ 	FXMenuCommand.new(help_menu, "&Help").connect(SEL_COMMAND) do
+
+    end
+ 
+ end
+
+
+ def drawMenu(tab_book,file_menu)
+	FXMenuCommand.new(file_menu, "&Load Log\tCtl-L\tLoad Log from a file").connect(SEL_COMMAND) do
+      load_data_internal(tab_book)
+    end
+	
+	FXMenuCommand.new(file_menu, "&Save Log\tCtl-R\tSave Log").connect(SEL_COMMAND) do
+   	  save_to_file(@output_file)
+	end
+
+	FXMenuCommand.new(file_menu, "&Save Log As\tCtl-S\tSave data under another name").connect(SEL_COMMAND) do
+      save_data
+    end
+
+	FXMenuCommand.new(file_menu, "Exit").connect(SEL_COMMAND) do
+      app.exit
+    end
+
+
+
+
+
+
+ end
+def save_to_file(filename)
+  if @text_box.text.empty?
+    FXMessageBox.error(self, MBOX_OK, "Error", "There is nothing to save!")
+    return 
+  end
+  File.open(filename, 'w') { |f| f.puts @text_box.text }
+  FXMessageBox.information(self, MBOX_OK, "File Saved", "Saved to... #{File.basename(@output_file)}")
+end
+def save_data
+  if @text_box.text.empty?
+    FXMessageBox.error(self, MBOX_OK, "Error", "There is nothing to save!")
+    return 
+  end
+  dialog = FXFileDialog.new(self, "Save Data")
+  dialog.selectMode = SELECTFILE_ANY
+  dialog.patternList = ["Text Files (*.txt)", "All Files (*)"]
+  dialog.directory = @output_directory
+  if dialog.execute != 0
+    filename = dialog.filename
+    save_to_file(filename)
+  end
+end
+def load_data_internal(tab_book)
+    dialog = FXFileDialog.new(self, "Load Data")
+    dialog.selectMode = SELECTFILE_EXISTING
+    dialog.patternList = ["Text Files (*.txt)", "All Files (*)"]
+	dialog.directory = @input_directory
+    if dialog.execute != 0
+      file_path = dialog.filename
+      begin
+        # Read the file's content and set it to the text box
+		
+        set_message_data(file_path)
+	    if nil_or_empty?(@customname)
+        @file2 =  "cleaned_#{File.basename(file_path)}"
+        @output_file = File.join(@output_directory, @file2)
+        @namelabel2.text = "Output Name: #{File.basename(@output_file)}"
+		end
+      rescue => e
+        FXMessageBox.error(self, MBOX_OK, "Error", "Failed to load file: #{e.message}")
+      end
+    end
+  end
+
+  def set_message_data(file_path)
+  
+        file_content = File.read(file_path)
+		@file = File.basename(file_path) 
+		nufilepath = file_path.gsub(@file, "")
+		if nufilepath!=@input_directory
+		 @input_directory=nufilepath
+		end
+      @input_file = File.join(@input_directory, @file)
+        @text_box.text = file_content
+        @namelabel.text = "Loaded File: #{@file}"
+  end
+
+  def drawBasicInfo(tab_book)
+  
+    # Create the first page
+    page1 = FXTabItem.new(tab_book, "Log Converter")
+    # Create a vertical layout for page 1
+    main_frame = FXVerticalFrame.new(tab_book, LAYOUT_FILL_X | LAYOUT_FILL_Y, padding: 10)
+
+    menu_bar = FXMenuBar.new(main_frame, LAYOUT_SIDE_TOP | LAYOUT_FILL_X)
+    file_menu = FXMenuPane.new(main_frame)
+    FXHorizontalSeparator.new(main_frame)
+    FXMenuTitle.new(menu_bar, "File", :popupMenu => file_menu)
+	drawMenu(tab_book,file_menu)
+	 name = "None"
+	 name = File.basename(@input_file) if File.exists?(@input_file)
+    spacer_frame1 = FXHorizontalFrame.new(main_frame, opts: LAYOUT_FILL_X | LAYOUT_CENTER_Y)
+    FXLabel.new(spacer_frame1, "                   ")
+    @namelabel = FXLabel.new(spacer_frame1, "Loaded Log: #{name}", opts: LAYOUT_CENTER_Y)
+    @reloadbutton = FXButton.new(spacer_frame1, "Reload\tgejo\tReloads currently displayed text", nil, nil, 0, opts: BUTTON_NORMAL | LAYOUT_CENTER_Y | LAYOUT_FIX_WIDTH, width: 100)
+    FXLabel.new(spacer_frame1, "                           ")
+    @namelabel2 = FXLabel.new(spacer_frame1, "Output Name: #{File.basename(@output_file)}", opts: LAYOUT_CENTER_Y)
+    @exportbutton = FXButton.new(spacer_frame1, "Export\tgejo\tExports log under given name", nil, nil, 0, opts: BUTTON_NORMAL | LAYOUT_CENTER_Y | LAYOUT_FIX_WIDTH, width: 100)
+    FXHorizontalSeparator.new(main_frame)
+
+    spacer_frame = FXHorizontalFrame.new(main_frame, opts: LAYOUT_FILL_X | LAYOUT_CENTER_Y, padding: 10)
+
+    # Left checkbox
+    left_frame = FXVerticalFrame.new(spacer_frame, opts: LAYOUT_FIX_WIDTH, width: 150)
+    FXLabel.new(left_frame, "Load File:\tgejo\tA list of a files in the default log folder.")
+    FXHorizontalSeparator.new(left_frame)
+    @handedness_dropdown = FXComboBox.new(left_frame, 20)
+    @handedness_dropdown.numVisible = 5
+    FXLabel.new(left_frame, "Filter:\tgejo\tA filter to only show in your log posts with what is typed in this box.")
+    FXHorizontalSeparator.new(left_frame)
+    @prefix_textfield = FXTextField.new(left_frame, 20)
+    FXLabel.new(left_frame, "Custom Name:\tgejo\tA custom output name for your Log.")
+    FXHorizontalSeparator.new(left_frame)
+    @cname_textfield = FXTextField.new(left_frame, 20)
+    #FXLabel.new(spacer_frame, "              ")
+
+
+    # Non-editable text box
+    @text_box = FXText.new(spacer_frame, opts: TEXT_READONLY | LAYOUT_FIX_WIDTH | LAYOUT_FIX_HEIGHT)
+    @text_box.text = ""
+    @text_box.width = 500
+    @text_box.height = 500
+	if File.exists?(@input_file)
+    set_message_data(@input_file) 
+	add_item_to_combo_box(@handedness_dropdown,File.basename(@input_file))
+    end
+	@files.each_with_index do |file,index|
+	add_item_to_combo_box(@handedness_dropdown,File.basename(file))
+	if !File.exists?(@input_file)
+      @input_file = File.join(@input_directory, file)
+    set_message_data(@input_file) 
+	
+	end
+	end
+    # Right checkbox
+	
+	
+	
+	
+	
+    right_frame = FXVerticalFrame.new(spacer_frame, opts: LAYOUT_FIX_WIDTH, width: 150)
+    spacer_frame30 = FXHorizontalFrame.new(right_frame, opts: LAYOUT_FILL_X | LAYOUT_CENTER_Y)
+    FXHorizontalSeparator.new(right_frame)
+    spacer_frame3 = FXHorizontalFrame.new(right_frame, opts: LAYOUT_FILL_X | LAYOUT_CENTER_Y)
+    spacer_frame31 = FXHorizontalFrame.new(right_frame, opts: LAYOUT_FILL_X | LAYOUT_CENTER_Y)
+    spacer_frame32 = FXHorizontalFrame.new(right_frame, opts: LAYOUT_FILL_X | LAYOUT_CENTER_Y)
+    spacer_frame33 = FXHorizontalFrame.new(right_frame, opts: LAYOUT_FILL_X | LAYOUT_CENTER_Y)
+    spacer_frame34 = FXHorizontalFrame.new(right_frame, opts: LAYOUT_FILL_X | LAYOUT_CENTER_Y)
+    spacer_frame35 = FXHorizontalFrame.new(right_frame, opts: LAYOUT_FILL_X | LAYOUT_CENTER_Y)
+    spacer_frame36 = FXHorizontalFrame.new(right_frame, opts: LAYOUT_FILL_X | LAYOUT_CENTER_Y)
+    FXLabel.new(spacer_frame30, "Settings:\tgejo\tGeneral Settings for Log output.")
+    FXLabel.new(spacer_frame3, "Reformat:\tgejo\tIf checked reformats your log to be human readable.")
+    @reformat = FXCheckButton.new(spacer_frame3, "\tgejo\tIf checked reformats your log to be human readable.")
+    FXLabel.new(spacer_frame31, "Timestamps:\tgejo\tIf checked, includes timestamps in your log.")
+    @timestamps = FXCheckButton.new(spacer_frame31, "\tgejo\tIf checked, includes timestamps in your log.")
+    FXLabel.new(spacer_frame32, "Single Line:\tgejo\tIf checked, makes multiline messages one line.")
+    @single = FXCheckButton.new(spacer_frame32, "\tgejo\tIf checked, makes multiline messages one line.")
+    FXLabel.new(spacer_frame33, "OOC:\tgejo\tIf checked, includes OOC messages in your Log.")
+    @ooc = FXCheckButton.new(spacer_frame33, "\tgejo\tIf checked, includes OOC messages in your Log.")
+    FXLabel.new(spacer_frame34, "LOOC:\tgejo\tIf checked, includes LOOC messages in your Log.")
+    @looc = FXCheckButton.new(spacer_frame34, "\tgejo\tIf checked, includes LOOC messages in your Log.")
+    FXLabel.new(spacer_frame35, "Omit:\tgejo\tIf checked, includes messages marked with (omit) in your Log.")
+    @omit = FXCheckButton.new(spacer_frame35, "\tgejo\tIf checked, includes messages marked with (omit) in your Log.")
+    FXLabel.new(spacer_frame36, "Omit on Repost:\tgejo\tIf checked, includes messages marked with (oir) or (repost) in your Log.")
+    @oir = FXCheckButton.new(spacer_frame36, "\tgejo\tIf checked, includes messages marked with (oir) or (repost) in your Log.")
+
+#settings = "timestamps","single line","reformat","OOC","LOOC","Omit","Omit on Repost","Filter"
+#@settings = [false,false,true,false,false,false,false,nil]
+    @reformat.setCheck(@settings[2])
+    @timestamps.setCheck(@settings[0])
+    @single.setCheck(@settings[1])
+    @ooc.setCheck(@settings[3])
+    @looc.setCheck(@settings[4])
+    @omit.setCheck(@settings[5])
+    @oir.setCheck(@settings[6])
+	@reformat.connect(SEL_COMMAND) do 
+       if @reformat.checked?
+	    @settings[2]=true
+       else
+	    @settings[2]=false
+       end
+	end
+	@timestamps.connect(SEL_COMMAND) do 
+       if @timestamps.checked?
+	    @settings[0]=true
+       else
+	    @settings[0]=false
+       end
+	end
+	@single.connect(SEL_COMMAND) do 
+       if @single.checked?
+	    @settings[1]=true
+       else
+	    @settings[1]=false
+       end
+	end
+	@ooc.connect(SEL_COMMAND) do 
+       if @ooc.checked?
+	    @settings[3]=true
+       else
+	    @settings[3]=false
+       end
+	end
+	@looc.connect(SEL_COMMAND) do 
+       if @looc.checked?
+	    @settings[4]=true
+       else
+	    @settings[4]=false
+       end
+	end
+	@omit.connect(SEL_COMMAND) do 
+       if @omit.checked?
+	    @settings[5]=true
+       else
+	    @settings[5]=false
+       end
+	end
+	@oir.connect(SEL_COMMAND) do 
+       if @oir.checked?
+	    @settings[6]=true
+       else
+	    @settings[6]=false
+       end
+	end
+
+    # Horizontal frame for buttons at the bottom
+    button_frame = FXHorizontalFrame.new(main_frame, opts: LAYOUT_CENTER_X | LAYOUT_FILL_X, padding: 10)
+
+    FXLabel.new(button_frame, "                                                         ")
+    FXLabel.new(button_frame, "                                                         ")
+    @convertbutton = FXButton.new(button_frame, "Convert\tgejo\tConverts text in current Log to new format", nil, nil, 0, opts: BUTTON_NORMAL | LAYOUT_CENTER_Y | LAYOUT_FIX_WIDTH, width: 100)
+
+	
+	
+	
+	
+	
+	
+	
+	@handedness_dropdown.connect(SEL_COMMAND) do
+       file_path = File.join(@input_directory_original, @handedness_dropdown.getItemText(@handedness_dropdown.currentItem))
+
+	   if @input_directory!=@input_directory_original
+	    @input_directory=@input_directory_original
+	   end
+
+  if !File.exist?(file_path)
+    FXMessageBox.error(self, MBOX_OK, "Error", "Failed to load file: #{@input_file}")
+	else
+       set_message_data(file_path)
+	    if nil_or_empty?(@customname)
+        @file2 =  "cleaned_#{@handedness_dropdown.getItemText(@handedness_dropdown.currentItem)}"
+        @output_file = File.join(@output_directory, @file2)
+        @namelabel2.text = "Output Name: #{File.basename(@output_file)}"
+		end
+  end
+   end
+	
+	
+	@reloadbutton.connect(SEL_COMMAND) do
+  if !File.exist?(@input_file)
+    FXMessageBox.error(self, MBOX_OK, "Error", "Failed to load file: #{@input_file}")
+    else
+       set_message_data(@input_file)
+	    if nil_or_empty?(@customname)
+        @file2 =  "cleaned_#{File.basename(@input_file)}"
+        @output_file = File.join(@output_directory, @file2)
+        @namelabel2.text = "Output Name: #{File.basename(@output_file)}"
+		end
+  end
+   end
+	@convertbutton.connect(SEL_COMMAND) do
+	  SLClean(@text_box, @settings)
+   end
+	@prefix_textfield.connect(SEL_CHANGED) do
+	    @settings[7]=@prefix_textfield.text
+   end
+	@cname_textfield.connect(SEL_CHANGED) do
+	    @customname="#{@cname_textfield.text}.txt"
+        @output_file = File.join(@output_directory, @customname)
+        @namelabel2.text = "Output Name: #{File.basename(@output_file)}"
+   end
+	@exportbutton.connect(SEL_COMMAND) do
+   	  save_to_file(@output_file)
+   end
+
+
+
+
+  end
+  
+
+  
+    def add_item_to_combo_box(combobox,item)
+    item_count = combobox.numItems
+    item_exists = false
+
+    (0...item_count).each do |i|
+      if combobox.getItemText(i) == item
+        item_exists = true
+        break
+      end
+    end
+
+    combobox.appendItem(item) unless item_exists
+  end
+
+def SLsingleline(textsource, settings)
+  full_text = textsource.text
+
+  cleaned_lines = []
+  previous_line = ""
+
+  File.readlines(@input_file).each do |line|
+    next if skip_line?(line, settings)
+	#character = get_character_name_or_prefix(line)
+
+    if line.include?("said in Say") || line.include?("said in Emote") || line.include?("said in LOOC") || line.include?("said in OOC")
+      cleaned_lines << previous_line.strip unless previous_line.empty?
+      previous_line = "\n" + line.strip
+    else
+      previous_line += " " + line.strip
+    end
+
+    #next if skip_line2?(line, character, settings)
+    previous_line = clean_line(previous_line, settings)
+  end
+
+  cleaned_lines << previous_line.strip unless previous_line.empty?
+
+  textsource.text = cleaned_lines.join("\n")
+  
+  
+end
+
+
+
+
+def SLmultiline(textsource, settings)
+  full_text = textsource.text
+  lines = full_text.split("\n")
+
+
+  cleaned_lines = File.readlines(@input_file).map do |line|
+    next if skip_line?(line, settings)
+	#character = get_character_name_or_prefix(line)
+    clean_line(line, settings)
+    #next if skip_line2?(line, character, settings)
+  end.compact
+
+    textsource.text = cleaned_lines.join("\n")
+
+end
+
+def SLClean(textsource, settings)
+  if @text_box.text.empty?
+    FXMessageBox.error(self, MBOX_OK, "Error", "There is nothing to convert!")
+    return 
+  end
+  unless File.exist?(@input_file)
+    FXMessageBox.error(self, MBOX_OK, "Error", "Failed to load file: #{@input_file}")
+    return
+  end
+  if settings[1] == false
+    SLmultiline(textsource, settings)
+  else
+    SLsingleline(textsource, settings)
+  end
+ 
+end
+
+def on_close(sender, sel, event)
+  savedate
+$time_thread.exit
+$alyra_thread.exit
+$node_thread.exit
+$gui_thread.exit
+  end
+end
+
+
 
 def log_file_display(filelist)
 
@@ -291,6 +729,29 @@ end
  return name
 end
 
+  FXApp.new do |app|
+    app.normalFont = FXFont.new(app, "Segoe UI", 9, FONTWEIGHT_NORMAL)
+    main_window = SL2Toolkit.new(app)
+	app.create
+    app.run
+  end
+if false
+#settings = "timestamps","lineamt","reformat","OOC","LOOC","Omit","Omit on Repost","Filter"
+settings = [false,"multi",true,false,false,false,false,nil]
+
+
+
+
+input_directory = $script_directory + "/put_logs_here/"
+output_directory = $script_directory + "/logs_output/"
+file =  ARGV[0] || "latest_chatlog"
+file2 =  "cleaned_#{file}.txt"
+input_file = File.join(input_directory, file)
+output_file = File.join(output_directory, file2)
+input_file = File.join(input_directory, "latest_chatlog.txt") if !File.exists?(input_file)
+output_file = File.join(output_directory, "cleaned_latest_chatlog.txt") if !File.exists?(output_file)
+input_file = "None" if !File.exists?(input_file)
+files = get_log_files(input_directory)
 
 hasmanuallysetfilename = false
 loop do
@@ -463,4 +924,10 @@ selected_mode = gets.chomp
 
 
 end
+end
 
+
+
+
+
+# Create the FXApp instance
